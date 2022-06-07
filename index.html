@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+    <title>Babylon.js sample code</title>
+
+    <!-- Babylon.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.2/dat.gui.min.js"></script>
+    <script src="https://assets.babylonjs.com/generated/Assets.js"></script>
+    <script src="https://preview.babylonjs.com/ammo.js"></script>
+    <script src="https://preview.babylonjs.com/cannon.js"></script>
+    <script src="https://preview.babylonjs.com/Oimo.js"></script>
+    <script src="https://preview.babylonjs.com/earcut.min.js"></script>
+    <script src="https://preview.babylonjs.com/babylon.js"></script>
+    <script src="https://preview.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+    <script src="https://preview.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+    <script src="https://preview.babylonjs.com/postProcessesLibrary/babylonjs.postProcess.min.js"></script>
+    <script src="https://preview.babylonjs.com/loaders/babylonjs.loaders.js"></script>
+    <script src="https://preview.babylonjs.com/serializers/babylonjs.serializers.min.js"></script>
+    <script src="https://preview.babylonjs.com/gui/babylon.gui.min.js"></script>
+    <script src="https://preview.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+
+    <style>
+        html,
+        body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        var canvas = document.getElementById("renderCanvas");
+
+        var startRenderLoop = function (engine, canvas) {
+            engine.runRenderLoop(function () {
+                if (sceneToRender && sceneToRender.activeCamera) {
+                    sceneToRender.render();
+                }
+            });
+        }
+
+        var engine = null;
+        var scene = null;
+        var sceneToRender = null;
+        var createDefaultEngine = function () { return new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true, disableWebGL2Support: false }); };
+        var createScene = function () {
+            var scene = new BABYLON.Scene(engine);
+
+            // light1
+            //var light = new BABYLON.DirectionalLight("dir01", new BABYLON.Vector3(1, -1, 1), scene);
+            var light = new BABYLON.SpotLight("spotLight", new BABYLON.Vector3(-40, 40, -40), new BABYLON.Vector3(1, -1, 1), Math.PI / 5, 30, scene);
+            light.position = new BABYLON.Vector3(-40, 40, -40);
+
+            // Shadows
+            var shadowGenerator = new BABYLON.ShadowGenerator(1024, light);
+            //shadowGenerator.bias = 0.0001;
+            light.shadowMaxZ = 1300;
+            light.shadowMinZ = 10;
+            shadowGenerator.useContactHardeningShadow = true;
+            shadowGenerator.setDarkness(0.5);
+
+            var lightSphere = BABYLON.Mesh.CreateSphere("sphere", 10, 2, scene);
+            lightSphere.position = light.position;
+            lightSphere.material = new BABYLON.StandardMaterial("light", scene);
+            lightSphere.material.emissiveColor = new BABYLON.Color3(1, 1, 0);
+
+
+
+
+
+            // Need a free camera for collisions
+            var camera = new BABYLON.FreeCamera("FreeCamera", new BABYLON.Vector3(0, -8, -20), scene);
+            camera.attachControl(canvas, true);
+
+            //Ground
+            var ground = BABYLON.Mesh.CreatePlane("ground", 80.0, scene);
+            var groundMaterial = new BABYLON.StandardMaterial("ground", scene);
+            groundMaterial.specularColor = new BABYLON.Color3(0, 0, 0);
+            ground.material = groundMaterial;
+            ground.position = new BABYLON.Vector3(5, -10, -15);
+            ground.rotation = new BABYLON.Vector3(Math.PI / 2, 0, 0);
+
+            //Simple crate
+            var box = BABYLON.Mesh.CreateBox("crate", 2, scene);
+            box.material = new BABYLON.StandardMaterial("Mat", scene);
+            box.material.diffuseTexture = new BABYLON.Texture("crate.png", scene);
+            box.material.diffuseTexture.hasAlpha = true;
+            box.position = new BABYLON.Vector3(5, -9, -10);
+
+            //Set gravity for the scene (G force like, on Y-axis)
+            scene.gravity = new BABYLON.Vector3(0, -0.9, 0);
+
+            // Enable Collisions
+            scene.collisionsEnabled = true;
+
+            //Then apply collisions and gravity to the active camera
+            camera.checkCollisions = true;
+            camera.applyGravity = true;
+
+            //Set the ellipsoid around the camera (e.g. your player's size)
+            camera.ellipsoid = new BABYLON.Vector3(1, 1, 1);
+
+            //finally, say which mesh will be collisionable
+            ground.checkCollisions = true;
+            box.checkCollisions = true;
+
+            let adt = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+            let xAddPos = 0;
+            let yAddPos = 0;
+            let xAddRot = 0;
+            let yAddRot = 0;
+            let sideJoystickOffset = 50;
+            let bottomJoystickOffset = -50;
+            let translateTransform;
+
+
+            let leftThumbContainer = makeThumbArea("leftThumb", 2, "blue", null);
+            leftThumbContainer.height = "100px";
+            leftThumbContainer.width = "100px";
+            leftThumbContainer.isPointerBlocker = true;
+            leftThumbContainer.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+            leftThumbContainer.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+            leftThumbContainer.alpha = 0.4;
+            leftThumbContainer.left = sideJoystickOffset;
+            leftThumbContainer.top = bottomJoystickOffset;
+
+            let leftInnerThumbContainer = makeThumbArea("leftInnterThumb", 4, "blue", null);
+            leftInnerThumbContainer.height = "50px";
+            leftInnerThumbContainer.width = "50px";
+            leftInnerThumbContainer.isPointerBlocker = true;
+            leftInnerThumbContainer.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+            leftInnerThumbContainer.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+
+
+            let leftPuck = makeThumbArea("leftPuck", 0, "blue", "blue");
+            leftPuck.height = "30px";
+            leftPuck.width = "30px";
+            leftPuck.isPointerBlocker = true;
+            leftPuck.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+            leftPuck.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+
+
+            leftThumbContainer.onPointerDownObservable.add(function (coordinates) {
+                leftPuck.isVisible = true;
+                leftPuck.floatLeft = coordinates.x - (leftThumbContainer._currentMeasure.width * .5) - sideJoystickOffset;
+                leftPuck.left = leftPuck.floatLeft;
+                leftPuck.floatTop = adt._canvas.height - coordinates.y - (leftThumbContainer._currentMeasure.height * .5) + bottomJoystickOffset;
+                leftPuck.top = leftPuck.floatTop * -1;
+                leftPuck.isDown = true;
+                leftThumbContainer.alpha = 0.9;
+            });
+
+            leftThumbContainer.onPointerUpObservable.add(function (coordinates) {
+                xAddPos = 0;
+                yAddPos = 0;
+                leftPuck.isDown = false;
+                leftPuck.isVisible = false;
+                leftThumbContainer.alpha = 0.4;
+            });
+
+
+            leftThumbContainer.onPointerMoveObservable.add(function (coordinates) {
+                if (leftPuck.isDown) {
+                    xAddPos = coordinates.x - (leftThumbContainer._currentMeasure.width * .5) - sideJoystickOffset;
+                    yAddPos = adt._canvas.height - coordinates.y - (leftThumbContainer._currentMeasure.height * .5) + bottomJoystickOffset;
+                    leftPuck.floatLeft = xAddPos;
+                    leftPuck.floatTop = yAddPos * -1;
+                    leftPuck.left = leftPuck.floatLeft;
+                    leftPuck.top = leftPuck.floatTop;
+                }
+            });
+
+            adt.addControl(leftThumbContainer);
+            leftThumbContainer.addControl(leftInnerThumbContainer);
+            leftThumbContainer.addControl(leftPuck);
+            leftPuck.isVisible = false;
+
+            let rightThumbContainer = makeThumbArea("rightThumb", 2, "red", null);
+            rightThumbContainer.height = "100px";
+            rightThumbContainer.width = "100px";
+            rightThumbContainer.isPointerBlocker = true;
+            rightThumbContainer.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            rightThumbContainer.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+            rightThumbContainer.alpha = 0.4;
+            rightThumbContainer.left = -sideJoystickOffset;
+            rightThumbContainer.top = bottomJoystickOffset;
+
+            let rightInnerThumbContainer = makeThumbArea("rightInnterThumb", 4, "red", null);
+            rightInnerThumbContainer.height = "50px";
+            rightInnerThumbContainer.width = "50px";
+            rightInnerThumbContainer.isPointerBlocker = true;
+            rightInnerThumbContainer.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+            rightInnerThumbContainer.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+
+
+            let rightPuck = makeThumbArea("rightPuck", 0, "red", "red");
+            rightPuck.height = "30px";
+            rightPuck.width = "30px";
+            rightPuck.isPointerBlocker = true;
+            rightPuck.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_CENTER;
+            rightPuck.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_CENTER;
+
+
+            rightThumbContainer.onPointerDownObservable.add(function (coordinates) {
+                rightPuck.isVisible = true;
+                rightPuck.floatLeft = adt._canvas.width - coordinates.x - (rightThumbContainer._currentMeasure.width * .5) - sideJoystickOffset;
+                rightPuck.left = rightPuck.floatLeft * -1;
+                rightPuck.floatTop = adt._canvas.height - coordinates.y - (rightThumbContainer._currentMeasure.height * .5) + bottomJoystickOffset;
+                rightPuck.top = rightPuck.floatTop * -1;
+                rightPuck.isDown = true;
+                rightThumbContainer.alpha = 0.9;
+            });
+
+            rightThumbContainer.onPointerUpObservable.add(function (coordinates) {
+                xAddRot = 0;
+                yAddRot = 0;
+                rightPuck.isDown = false;
+                rightPuck.isVisible = false;
+                rightThumbContainer.alpha = 0.4;
+            });
+
+
+            rightThumbContainer.onPointerMoveObservable.add(function (coordinates) {
+                if (rightPuck.isDown) {
+                    xAddRot = adt._canvas.width - coordinates.x - (rightThumbContainer._currentMeasure.width * .5) - sideJoystickOffset;
+                    yAddRot = adt._canvas.height - coordinates.y - (rightThumbContainer._currentMeasure.height * .5) + bottomJoystickOffset;
+                    rightPuck.floatLeft = xAddRot * -1;
+                    rightPuck.floatTop = yAddRot * -1;
+                    rightPuck.left = rightPuck.floatLeft;
+                    rightPuck.top = rightPuck.floatTop;
+                }
+            });
+
+            //leftThumbContainer.left = 50;
+            adt.addControl(rightThumbContainer);
+            rightThumbContainer.addControl(rightInnerThumbContainer);
+            rightThumbContainer.addControl(rightPuck);
+            rightPuck.isVisible = false;
+
+            camera.attachControl(canvas, true);
+
+            scene.registerBeforeRender(function () {
+                translateTransform = BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(xAddPos / 3000, 0, yAddPos / 3000), BABYLON.Matrix.RotationY(camera.rotation.y));
+                camera.cameraDirection.addInPlace(translateTransform);
+                camera.cameraRotation.y += xAddRot / 15000 * -1;
+                camera.cameraRotation.x += yAddRot / 15000 * -1;
+            });
+
+            function makeThumbArea(name, thickness, color, background, curves) {
+                let rect = new BABYLON.GUI.Ellipse();
+                rect.name = name;
+                rect.thickness = thickness;
+                rect.color = color;
+                rect.background = background;
+                rect.paddingLeft = "0px";
+                rect.paddingRight = "0px";
+                rect.paddingTop = "0px";
+                rect.paddingBottom = "0px";
+
+
+
+
+                return rect;
+            }
+            return scene;
+        }
+        window.initFunction = async function () {
+
+
+            var asyncEngineCreation = async function () {
+                try {
+                    return createDefaultEngine();
+                } catch (e) {
+                    console.log("the available createEngine function failed. Creating the default engine instead");
+                    return createDefaultEngine();
+                }
+            }
+
+            window.engine = await asyncEngineCreation();
+            if (!engine) throw 'engine should not be null.';
+            startRenderLoop(engine, canvas);
+            window.scene = createScene();
+        };
+        initFunction().then(() => {
+            sceneToRender = scene
+        });
+
+        // Resize
+        window.addEventListener("resize", function () {
+            engine.resize();
+        });
+    </script>
+</body>
+
+</html>
